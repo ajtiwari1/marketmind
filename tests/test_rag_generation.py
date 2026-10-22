@@ -120,9 +120,52 @@ class GeminiAnswerGeneratorTests(unittest.TestCase):
         self.assertEqual(result.answer, "Answer [1]")
         self.assertEqual(result.sources, tuple(sources))
         self.assertEqual(result.model, "gemini-test")
-        for call in langfuse_client.start_as_current_observation.call_args_list:
-            self.assertNotIn("Question?", str(call.kwargs.get("input")))
-            self.assertNotIn("Relevant source text", str(call.kwargs.get("input")))
+        langfuse_client.start_as_current_observation.assert_any_call(
+            as_type="chain",
+            name="rag.answer_question",
+            input={"question": "Question?", "top_k": 3},
+        )
+        langfuse_client.start_as_current_observation.return_value.__enter__.return_value.update.assert_any_call(
+            output={
+                "answer": "Answer [1]",
+                "answer_length": len("Answer [1]"),
+                "source_count": 1,
+                "model": "gemini-test",
+            }
+        )
+
+    def test_answer_with_sources_records_question_and_answer_in_langfuse(self) -> None:
+        from chat.generation import answer_with_sources
+
+        langfuse_client = MagicMock()
+        generator = MagicMock()
+        generator.generate.return_value = "Web-grounded answer"
+        with patch("chat.generation.get_langfuse_client", return_value=langfuse_client):
+            result = answer_with_sources(
+                "Latest web question?",
+                [make_source()],
+                config=RagConfig(gemini_model="gemini-test"),
+                generator=generator,
+            )
+
+        self.assertEqual(result.answer, "Web-grounded answer")
+        langfuse_client.start_as_current_observation.assert_any_call(
+            as_type="chain",
+            name="rag.answer_with_sources",
+            input={
+                "question": "Latest web question?",
+                "source_count": 1,
+                "source_types": ["local"],
+            },
+        )
+        langfuse_client.start_as_current_observation.return_value.__enter__.return_value.update.assert_any_call(
+            output={
+                "answer": "Web-grounded answer",
+                "answer_length": len("Web-grounded answer"),
+                "source_count": 1,
+                "model": "gemini-test",
+            }
+        )
 
     def test_answer_question_rejects_invalid_query_or_top_k(self) -> None:
         with self.assertRaisesRegex(ValueError, "question must not be empty"):
