@@ -226,3 +226,35 @@ The JSON response contains `answer`, the Gemini `model`, and `sources` with
 each retrieved chunk's text, source, file type, score, and metadata. `top_k`
 must be between 1 and 20, and document ID and MIME type filters are optional.
 Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
+
+### Optional Tavily MCP web search
+
+The question endpoint supports caller-selected search modes:
+
+- `local` (default): search indexed Qdrant chunks only.
+- `web`: search Tavily through its official local MCP server.
+- `hybrid`: search both sources and ground Gemini on both sets of citations.
+
+Install Node.js 20 or newer, ensure `npx` is on `PATH`, and add your Tavily key
+to the ignored `.env` file:
+
+```dotenv
+TAVILY_API_KEY=your-tavily-api-key
+TAVILY_MCP_TIMEOUT_SECONDS=20
+```
+
+Example web request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What are the latest updates?","search_mode":"web","top_k":5}'
+```
+
+The API response tags each source as `local` or `web`; web sources include a
+URL and optional published date. Local-only document/file filters are rejected
+in web mode rather than silently ignored. The API sends the question to Tavily for search and the question plus returned
+snippets to Gemini for answer generation. Langfuse records the question as the
+answer chain's input and the generated answer as its output; retrieved snippet
+text is not recorded in the trace.
+The local MCP subprocess receives only `PATH`, `HOME`, and `TAVILY_API_KEY`.

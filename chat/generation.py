@@ -8,6 +8,8 @@ from qdrant_client.http.exceptions import ApiException, ResponseHandlingExceptio
 
 from libs.langfuse import flush_langfuse, get_langfuse_client
 
+from search_tool.models import WebSearchResult
+
 from .config import RagConfig
 from .retrieval import RetrievedChunk, RetrievalFilters, retrieve
 
@@ -37,7 +39,7 @@ class GeminiConfigurationError(ValueError):
 @dataclass(frozen=True)
 class GeneratedAnswer:
     answer: str
-    sources: tuple[RetrievedChunk, ...]
+    sources: tuple[RetrievedChunk | WebSearchResult, ...]
     model: str
 
 
@@ -68,19 +70,28 @@ class GeminiAnswerGenerator:
     def generate(
         self,
         question: str,
-        sources: Sequence[RetrievedChunk],
+        sources: Sequence[RetrievedChunk | WebSearchResult],
     ) -> str:
         if not question.strip():
             raise ValueError("question must not be empty")
         if not sources:
-            return "I couldn't find relevant information in the indexed documents."
+            return "I couldn't find relevant information in the available sources."
 
-        context = "\n\n".join(
-            f"[{index}] Source: {chunk.source}\n"
-            f"File: {chunk.file_name}\n"
-            f"Content:\n{chunk.text}"
-            for index, chunk in enumerate(sources, start=1)
-        )
+        excerpts: list[str] = []
+        for index, source in enumerate(sources, start=1):
+            source_type = "web" if isinstance(source, WebSearchResult) else "local"
+            published_date = (
+                f"\nPublished: {source.published_date}"
+                if isinstance(source, WebSearchResult) and source.published_date
+                else ""
+            )
+            excerpts.append(
+                f"[{index}] Source type: {source_type}\n"
+                f"Source: {source.source}\n"
+                f"Title/file: {source.file_name}{published_date}\n"
+                f"Content:\n{source.text}"
+            )
+        context = "\n\n".join(excerpts)
         prompt = (
             "Answer the user's question using only the source excerpts below. "
             "Cite supporting claims with the excerpt number, for example [1]. "
@@ -124,7 +135,7 @@ def answer_question(
     with client.start_as_current_observation(
         as_type="chain",
         name="rag.answer_question",
-        input={"question_length": len(question.strip()), "top_k": top_k},
+        input={"question": question.strip(), "top_k": top_k},
     ) as observation:
         sources = retrieve(
             question,
@@ -146,6 +157,63 @@ def answer_question(
             generation.update(output={"answer_length": len(answer)})
         observation.update(
             output={
+                "answer": answer,
+                "answer_length": len(answer),
+                "source_count": len(sources),
+                "model": settings.gemini_model,
+            }
+        )
+        return GeneratedAnswer(
+            answer=answer,
+            sources=tuple(sources),
+            model=settings.gemini_model,
+        )
+
+
+def answer_with_sources(
+    question: str,
+    sources: Sequence[RetrievedChunk | WebSearchResult],
+    *,
+    config: RagConfig | None = None,
+    generator: GeminiAnswerGenerator | None = None,
+) -> GeneratedAnswer:
+    """Generate a grounded response from caller-provided local or web sources."""
+    if not question.strip():
+        raise ValueError("question must not be empty")
+
+    settings = config or RagConfig.from_env()
+    settings.validate()
+    answer_generator = generator or GeminiAnswerGenerator(settings)
+    client = get_langfuse_client()
+    with client.start_as_current_observation(
+        as_type="chain",
+        name="rag.answer_with_sources",
+        input={
+            "question": question.strip(),
+            "source_count": len(sources),
+            "source_types": sorted(
+                {
+                    "web" if isinstance(source, WebSearchResult) else "local"
+                    for source in sources
+                }
+            ),
+        },
+    ) as observation:
+        with client.start_as_current_observation(
+            as_type="generation",
+            name="rag.gemini.generate_answer",
+            model=settings.gemini_model,
+            model_parameters={"temperature": 0.2},
+            input={
+                "source_count": len(sources),
+                "question_length": len(question.strip()),
+            },
+        ) as generation:
+            answer = answer_generator.generate(question, sources)
+            generation.update(output={"answer_length": len(answer)})
+        observation.update(
+            output={
+                "answer": answer,
                 "answer_length": len(answer),
                 "source_count": len(sources),
                 "model": settings.gemini_model,

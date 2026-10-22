@@ -13,6 +13,7 @@ dependencies = [
     "fastembed>=0.7",
     "google-genai>=1.0.0",
     "langfuse>=5,<6",
+    "mcp>=1.0",
     "openpyxl>=3.1",
     "pymupdf>=1.24",
     "python-docx>=1.1",
@@ -28,4 +29,4 @@ marketmind-search = "chat.retrieval:main"
 marketmind-ask = "chat.generation:main"
 
 [tool.setuptools.packages.find]
-include = ["libs", "libs.*", "chat", "chat.*", "middleware", "middleware.*"]
+include = ["libs", "libs.*", "chat", "chat.*", "middleware", "middleware.*", "search_tool", "search_tool.*"]
