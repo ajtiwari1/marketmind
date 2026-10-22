@@ -7,7 +7,25 @@ name = "marketmind-langfuse-utils"
 version = "0.1.0"
 description = "Reusable Langfuse instrumentation utilities for MarketMind applications"
 requires-python = ">=3.11,<4"
-dependencies = ["langfuse>=5,<6"]
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "fastapi>=0.115",
+    "fastembed>=0.7",
+    "google-genai>=1.0.0",
+    "langfuse>=5,<6",
+    "openpyxl>=3.1",
+    "pymupdf>=1.24",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "qdrant-client>=1.13",
+    "sentence-transformers>=6.0",
+    "uvicorn>=0.30",
+]
+
+[project.scripts]
+marketmind-ingest = "chat.pipeline:main"
+marketmind-search = "chat.retrieval:main"
+marketmind-ask = "chat.generation:main"
 
 [tool.setuptools.packages.find]
-include = ["libs", "libs.*"]
+include = ["libs", "libs.*", "chat", "chat.*", "middleware", "middleware.*"]
